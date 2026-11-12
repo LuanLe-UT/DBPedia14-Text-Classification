@@ -1,0 +1,36 @@
+# Python environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Tool and runtime caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# Evaluation outputs
+**/metrics.json
+**/classification_report_test.txt
+**/confusion_matrix_test.csv
+**/confusion_matrix_test.png
+**/evaluation/
+BERT/BERT_confusion_matrix.png
+GPT/GPT-2_confusion_matrix.png
+
+# Training checkpoints can be very large
+**/checkpoint-*/
+
+# GPT-2 exported model and tokenizer (the training checkpoint remains local too)
+GPT/results_dbpedia_gpt2/config.json
+GPT/results_dbpedia_gpt2/model.safetensors
+GPT/results_dbpedia_gpt2/pytorch_model*.bin
+GPT/results_dbpedia_gpt2/tokenizer.json
+GPT/results_dbpedia_gpt2/tokenizer_config.json
+GPT/results_dbpedia_gpt2/special_tokens_map.json
+GPT/results_dbpedia_gpt2/vocab.json
+GPT/results_dbpedia_gpt2/merges.txt
+GPT/results_dbpedia_gpt2/added_tokens.json
+GPT/results_dbpedia_gpt2/generation_config.json
+GPT/results_dbpedia_gpt2/training_args.bin

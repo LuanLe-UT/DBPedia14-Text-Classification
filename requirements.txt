@@ -1,0 +1,11 @@
+# Install the CUDA-enabled PyTorch build separately; see README.md.
+accelerate
+datasets
+joblib
+matplotlib
+numpy
+pandas
+scikit-learn
+scipy
+seaborn
+transformers
