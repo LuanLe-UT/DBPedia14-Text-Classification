@@ -1,10 +1,10 @@
-# DBpedia-14: custom TF-IDF + Linear SVM
+# DBpedia-14: scikit-learn TF-IDF + Linear SVM
 
 This experiment uses the same `content` field and Hugging Face dataset as the
 BERT and GPT-2 experiments: `fancyzhx/dbpedia_14`. The implementation includes
-its own Unicode word tokenizer, document-frequency vocabulary, sublinear term
-frequency, smoothed IDF, and L2 normalization. `LinearSVC` is used for the
-linear SVM classifier.
+`sklearn.feature_extraction.text.TfidfVectorizer` creates word-level TF-IDF
+features with sublinear term frequency, smoothed IDF, and L2 normalization.
+`LinearSVC` is used for the linear SVM classifier.
 
 ## Run
 
@@ -22,9 +22,9 @@ For a quick smoke test (the selected samples are balanced across labels):
 python SVM\tfidf_svm.py --train-limit 2000 --test-limit 500
 ```
 
-Optional controls include `--max-features`, `--min-df`, `--batch-size`, and
-`--output-dir`. The default maximum vocabulary size is 100,000, with terms
-appearing in fewer than two training documents excluded.
+Optional controls include `--max-features`, `--min-df`, and `--output-dir`.
+The default maximum vocabulary size is 100,000, with terms appearing in fewer
+than two training documents excluded.
 
 ## Evaluation output
 
@@ -40,6 +40,9 @@ both the training and held-out test sets. It writes:
 - `results_dbpedia_svm/confusion_matrix_test.csv`: test-set confusion matrix.
 - `results_dbpedia_svm/confusion_matrix_test.png`: annotated heatmap of the
   test-set confusion matrix.
+
+The vectorizer settings are recorded in `metrics.json` and the fitted
+scikit-learn vectorizer is saved with the trained classifier.
 
 Metrics from a limited smoke-test run are not comparable to the full-dataset
 results. The training metrics are measured on the same examples used to fit

@@ -4,8 +4,6 @@ from __future__ import annotations
 import csv
 import json
 import mimetypes
-import sys
-from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -28,15 +26,6 @@ def get_model(key: str):
         raise FileNotFoundError(f"Chưa tìm thấy tệp mô hình {item['name']}: {item['path']}")
     if key == "svm":
         from joblib import load
-        # The training script originally ran as __main__, so the saved
-        # vectorizer can resolve its Counter global through the training module.
-        from SVM import tfidf_svm
-        tfidf_svm.Counter = Counter
-        # The artifact was serialized while the training file was __main__.
-        # Restore the globals used by that vectorizer for joblib compatibility.
-        training_globals = sys.modules["__main__"].__dict__
-        for name in ("Counter", "TOKEN_PATTERN", "np", "math", "csr_matrix", "vstack"):
-            training_globals[name] = getattr(tfidf_svm, name)
         bundle = load(item["path"])
         model = (bundle["vectorizer"], bundle["classifier"], bundle["class_names"])
     else:

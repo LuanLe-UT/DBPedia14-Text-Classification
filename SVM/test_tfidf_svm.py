@@ -1,30 +1,12 @@
 import unittest
 
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
 
-from tfidf_svm import TfidfVectorizer, balanced_indices, evaluate_split
+from tfidf_svm import balanced_indices, evaluate_split
 
 
-class TfidfVectorizerTests(unittest.TestCase):
-    def test_builds_normalized_sparse_features_and_ignores_unknown_tokens(self):
-        vectorizer = TfidfVectorizer(max_features=20, min_df=1)
-        matrix = vectorizer.fit_transform(
-            ["Cat cat sat", "Cat sat", "Dog slept"], batch_size=2
-        )
-
-        self.assertEqual(matrix.shape, (3, len(vectorizer.vocabulary_)))
-        np.testing.assert_allclose(
-            np.sqrt(matrix.multiply(matrix).sum(axis=1)).A1,
-            [1.0, 1.0, 1.0],
-        )
-        unknown = vectorizer.transform(["unknownword"], batch_size=1)
-        self.assertEqual(unknown.nnz, 0)
-        self.assertEqual(vectorizer.tokenize("A Cat, 42!"), ["a", "cat", "42"])
-
-    def test_rejects_empty_fit_input(self):
-        with self.assertRaisesRegex(ValueError, "empty document collection"):
-            TfidfVectorizer().fit([])
-
+class SvmUtilityTests(unittest.TestCase):
     def test_reports_accuracy_and_macro_metrics(self):
         result = evaluate_split(np.asarray([0, 1, 1]), np.asarray([0, 1, 0]))
 
@@ -40,6 +22,24 @@ class TfidfVectorizerTests(unittest.TestCase):
 
         self.assertEqual(len(selected), 5)
         self.assertEqual([labels[index] for index in selected], [0, 0, 1, 1, 2])
+
+    def test_sklearn_vectorizer_uses_configured_token_pattern_and_l2_norm(self):
+        vectorizer = TfidfVectorizer(
+            token_pattern=r"(?u)\b[^\W_]+\b",
+            sublinear_tf=True,
+            use_idf=True,
+            smooth_idf=True,
+            norm="l2",
+            min_df=1,
+        )
+        matrix = vectorizer.fit_transform(["Cat cat sat", "Cat sat", "Dog slept"])
+
+        self.assertIn("cat", vectorizer.vocabulary_)
+        self.assertEqual(matrix.shape[0], 3)
+        np.testing.assert_allclose(
+            np.sqrt(matrix.multiply(matrix).sum(axis=1)).A1,
+            [1.0, 1.0, 1.0],
+        )
 
 
 if __name__ == "__main__":

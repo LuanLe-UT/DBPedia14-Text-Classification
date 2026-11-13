@@ -1,19 +1,16 @@
 import argparse
 import csv
 import json
-import math
-import re
 import time
-from collections import Counter
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 import numpy as np
 from datasets import load_dataset
 from joblib import dump
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.sparse import csr_matrix, vstack
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -25,117 +22,7 @@ from sklearn.metrics import (
 from sklearn.svm import LinearSVC
 
 
-TOKEN_PATTERN = re.compile(r"[^\W_]+", flags=re.UNICODE)
 OUTPUT_DIR = Path(__file__).resolve().parent / "results_dbpedia_svm"
-
-
-class TfidfVectorizer:
-    """A sparse, word-level TF-IDF vectorizer implemented without sklearn."""
-
-    def __init__(self, max_features: int = 100_000, min_df: int = 2):
-        if max_features < 1:
-            raise ValueError("max_features must be greater than zero.")
-        if min_df < 1:
-            raise ValueError("min_df must be greater than zero.")
-        self.max_features = max_features
-        self.min_df = min_df
-        self.vocabulary_: dict[str, int] = {}
-        self.idf_: np.ndarray | None = None
-
-    @staticmethod
-    def tokenize(text: str) -> list[str]:
-        return TOKEN_PATTERN.findall(text.lower())
-
-    def fit(self, documents: Iterable[str]) -> "TfidfVectorizer":
-        document_frequency: Counter[str] = Counter()
-        document_count = 0
-        for document in documents:
-            document_count += 1
-            document_frequency.update(set(self.tokenize(document)))
-
-        if document_count == 0:
-            raise ValueError("Cannot fit TF-IDF on an empty document collection.")
-
-        terms = [
-            (term, frequency)
-            for term, frequency in document_frequency.items()
-            if frequency >= self.min_df
-        ]
-        terms.sort(key=lambda item: (-item[1], item[0]))
-        terms = terms[: self.max_features]
-        if not terms:
-            raise ValueError(
-                "The vocabulary is empty; lower min_df or provide more documents."
-            )
-
-        self.vocabulary_ = {
-            term: index for index, (term, _) in enumerate(terms)
-        }
-        self.idf_ = np.asarray(
-            [
-                math.log((1 + document_count) / (1 + frequency)) + 1
-                for _, frequency in terms
-            ],
-            dtype=np.float64,
-        )
-        return self
-
-    def transform(
-        self, documents: Sequence[str], batch_size: int = 10_000
-    ) -> csr_matrix:
-        if self.idf_ is None:
-            raise RuntimeError("Call fit before transform.")
-        if batch_size < 1:
-            raise ValueError("batch_size must be greater than zero.")
-        if not documents:
-            return csr_matrix((0, len(self.vocabulary_)), dtype=np.float32)
-
-        batches = []
-        for start in range(0, len(documents), batch_size):
-            batch_documents = documents[start : start + batch_size]
-            indptr = [0]
-            indices: list[int] = []
-            values: list[float] = []
-
-            for document in batch_documents:
-                term_counts = Counter(self.tokenize(document))
-                row: list[tuple[int, float]] = []
-                for term, count in term_counts.items():
-                    feature_index = self.vocabulary_.get(term)
-                    if feature_index is not None:
-                        term_frequency = 1.0 + math.log(count)
-                        row.append(
-                            (
-                                feature_index,
-                                term_frequency * self.idf_[feature_index],
-                            )
-                        )
-
-                row.sort(key=lambda item: item[0])
-                norm = math.sqrt(sum(value * value for _, value in row))
-                if norm:
-                    indices.extend(index for index, _ in row)
-                    values.extend(value / norm for _, value in row)
-                indptr.append(len(indices))
-
-            batch = csr_matrix(
-                (
-                    np.asarray(values, dtype=np.float32),
-                    np.asarray(indices, dtype=np.int32),
-                    np.asarray(indptr, dtype=np.int32),
-                ),
-                shape=(len(batch_documents), len(self.vocabulary_)),
-                dtype=np.float32,
-            )
-            batches.append(batch)
-
-        return vstack(batches, format="csr", dtype=np.float32)
-
-    def fit_transform(
-        self, documents: Sequence[str], batch_size: int = 10_000
-    ) -> csr_matrix:
-        self.fit(documents)
-        return self.transform(documents, batch_size=batch_size)
 
 
 def evaluate_split(
@@ -212,7 +99,6 @@ def run(
     test_limit: int | None,
     max_features: int,
     min_df: int,
-    batch_size: int,
     output_dir: Path,
 ) -> None:
     dataset = load_dataset("fancyzhx/dbpedia_14")
@@ -235,21 +121,31 @@ def run(
     train_labels = np.asarray(train_data["label"])
     test_labels = np.asarray(test_data["label"])
 
-    vectorizer = TfidfVectorizer(max_features=max_features, min_df=min_df)
     print(f"Training documents: {len(train_texts)}")
     print(f"Test documents: {len(test_texts)}")
     started = time.perf_counter()
-    print("Fitting custom tokenizer and TF-IDF vocabulary...")
-    train_features = vectorizer.fit_transform(train_texts, batch_size=batch_size)
+    vectorizer = TfidfVectorizer(
+        max_features=max_features,
+        min_df=min_df,
+        token_pattern=r"(?u)\b[^\W_]+\b",
+        sublinear_tf=True,
+        use_idf=True,
+        smooth_idf=True,
+        norm="l2",
+        dtype=np.float32,
+    )
+    print("Fitting scikit-learn TfidfVectorizer...")
+    train_features = vectorizer.fit_transform(train_texts)
+    vocabulary_size = len(vectorizer.vocabulary_)
     print(
-        f"Vocabulary size: {len(vectorizer.vocabulary_):,}; "
+        f"Vocabulary size: {vocabulary_size:,}; "
         f"TF-IDF training matrix: {train_features.shape[0]:,} x "
         f"{train_features.shape[1]:,} "
         f"({train_features.nnz:,} non-zero values)"
     )
 
     print("Transforming test data...")
-    test_features = vectorizer.transform(test_texts, batch_size=batch_size)
+    test_features = vectorizer.transform(test_texts)
 
     print("Training LinearSVC...")
     classifier = LinearSVC(random_state=42, max_iter=5000)
@@ -263,10 +159,14 @@ def run(
         "dataset": "fancyzhx/dbpedia_14",
         "model": "LinearSVC",
         "vectorizer": {
-            "implementation": "custom word tokenizer + sublinear TF-IDF",
+            "implementation": "sklearn TfidfVectorizer",
             "max_features": max_features,
             "min_df": min_df,
-            "vocabulary_size": len(vectorizer.vocabulary_),
+            "vocabulary_size": vocabulary_size,
+            "token_pattern": r"(?u)\b[^\W_]+\b",
+            "sublinear_tf": True,
+            "use_idf": True,
+            "smooth_idf": True,
             "normalization": "L2",
         },
         "sample_counts": {
@@ -333,7 +233,7 @@ def run(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Classify DBpedia-14 with a custom TF-IDF and LinearSVC."
+        description="Classify DBpedia-14 with TF-IDF and LinearSVC."
     )
     parser.add_argument(
         "--train-limit",
@@ -347,15 +247,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-features", type=int, default=100_000)
     parser.add_argument("--min-df", type=int, default=2)
-    parser.add_argument("--batch-size", type=int, default=10_000)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     args = parser.parse_args()
     if args.train_limit is not None and args.train_limit < 1:
         parser.error("--train-limit must be greater than zero.")
     if args.test_limit is not None and args.test_limit < 1:
         parser.error("--test-limit must be greater than zero.")
-    if args.max_features < 1 or args.min_df < 1 or args.batch_size < 1:
-        parser.error("--max-features, --min-df, and --batch-size must be positive.")
+    if args.max_features < 1 or args.min_df < 1:
+        parser.error("--max-features and --min-df must be positive.")
     return args
 
 
@@ -366,7 +265,6 @@ def main() -> None:
         test_limit=args.test_limit,
         max_features=args.max_features,
         min_df=args.min_df,
-        batch_size=args.batch_size,
         output_dir=args.output_dir,
     )
 
